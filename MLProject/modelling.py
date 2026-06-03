@@ -1,3 +1,4 @@
+import shutil
 import pandas as pd
 import os
 import mlflow
@@ -18,6 +19,7 @@ from sklearn.preprocessing import LabelEncoder
 TRACKING_URI = "https://dagshub.com/alamahul/sistem-machine-learning-submission-dicoding.mlflow"
 mlflow.set_tracking_uri(TRACKING_URI)
 
+
 mlflow.set_experiment("Eksperimen_Prediksi_Genre_Film")
 
 def train_and_log_model():
@@ -28,7 +30,6 @@ def train_and_log_model():
     # 2. PERSIAPAN DATA (PREPROCESSING UNTUK MODEL)
     # ---------------------------------------------------------
     print("[INFO] Mempersiapkan data...")
-    # Membuang kolom yang berisi teks panjang/unik yang tidak relevan untuk ML dasar
     df = df.drop(columns=['Title', 'Description'])
     
     # Memisahkan Fitur (X) dan Target (y) yaitu kolom 'Genre'
@@ -46,12 +47,16 @@ def train_and_log_model():
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
     # ---------------------------------------------------------
-    # 3. MELATIH MODEL
+    # 3. MELATIH MODEL DENGAN HYPERPARAMETER TUNING
     # ---------------------------------------------------------
-    print("[INFO] Memulai pelatihan model...")
+    print("[INFO] Memulai Hyperparameter Tuning...")
     rf = RandomForestClassifier(random_state=42)
+    param_grid = {
+        'n_estimators': [50, 100],
+        'max_depth': [None, 10]
+    }
     
-    grid_search = GridSearchCV(estimator=rf)
+    grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=3, n_jobs=-1)
     grid_search.fit(X_train, y_train)
     
     best_model = grid_search.best_estimator_
@@ -91,7 +96,22 @@ def train_and_log_model():
         mlflow.log_artifact(fi_path) 
         
         # E. Log Model Utama
-        mlflow.sklearn.log_model(best_model, "model")
+        # 1. Hapus folder lokal lama jika ada, agar tidak bentrok
+        if os.path.exists("model_lokal"):
+            shutil.rmtree("model_lokal")
+            
+        print("[INFO] Menyimpan model MLflow ke folder lokal...")
+        # Membuat struktur folder model MLflow resmi di komputer Anda
+        mlflow.sklearn.save_model(best_model, "model_lokal")
+        
+        print("[INFO] Mengunggah folder model ke DagsHub...")
+        # Memaksa mengunggah seluruh folder lokal tadi ke path "model" di DagsHub
+        mlflow.log_artifacts("model_lokal", artifact_path="model")
+        
+        # Hapus folder lokal setelah berhasil diunggah agar bersih
+        if os.path.exists("model_lokal"):
+            shutil.rmtree("model_lokal")
+        # =========================================================
         
         print(f"[SUKSES] Model selesai dilatih. Akurasi: {acc:.2f}")
         print("[SUKSES] Artefak telah berhasil dikirim ke DagsHub!")
